@@ -53,7 +53,10 @@ def parse_args():
     p.add_argument("--eval-every", type=int, default=100, help="updates between evaluations")
     p.add_argument("--eval-episodes", type=int, default=32)
     p.add_argument("--save-every", type=int, default=50)
-    p.add_argument("--resume", default=None, help="checkpoint to continue from")
+    p.add_argument("--resume", default=None, help="checkpoint to continue from (same run, same settings)")
+    p.add_argument("--init-from", default=None,
+                   help="start a new run from a checkpoint's network weights only (fresh optimizer, "
+                        "step count and learning-rate schedule), e.g. to fine-tune with new rewards")
     for k, v in DEFAULT_CONFIG.items():
         p.add_argument(f"--env-{k.replace('_', '-')}", type=type(v), default=v, dest=f"env_{k}")
     return p.parse_args()
@@ -84,6 +87,12 @@ def main():
         start_update, global_step = ck["update"] + 1, ck["global_step"]
         best_eval = ck.get("best_eval", -1.0)
         print(f"resumed from {args.resume} at update {ck['update']}")
+    elif args.init_from:
+        ck = torch.load(args.init_from, map_location=device, weights_only=False)
+        if ck["args"]["stack"] != args.stack:
+            raise SystemExit(f"--init-from checkpoint uses --stack {ck['args']['stack']}, not {args.stack}")
+        agent.load_state_dict(ck["model"])
+        print(f"initialized weights from {args.init_from} ({ck['global_step']/1e6:.0f}M steps)")
 
     # Compiled copy (shares weights) for the big minibatch passes in the update.
     train_agent = agent if args.no_compile or device.type != "cuda" else torch.compile(agent)
