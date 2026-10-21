@@ -4,3 +4,4 @@ __pycache__/
 *.so
 tests/fidelity/build/
 videos/
+models/
