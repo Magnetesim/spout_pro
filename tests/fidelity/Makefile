@@ -14,7 +14,7 @@ $(BUILD)/spout_patched.c: $(SPOUT)/spout.c
 	cp $(SPOUT)/config.def.h $(BUILD)/config.h
 
 $(BUILD)/harness: harness.c $(BUILD)/spout_patched.c $(CSRC)/spout_core.c $(CSRC)/spout_core.h
-	$(CC) -O2 -g -std=gnu11 -w -Ifake_sdl -I$(BUILD) -I$(SPOUT) -I$(CSRC) \
+	$(CC) -O2 -g -std=gnu11 -w -U_FORTIFY_SOURCE -Ifake_sdl -I$(BUILD) -I$(SPOUT) -I$(CSRC) \
 	    -o $@ harness.c $(CSRC)/spout_core.c -lm
 
 run: $(BUILD)/harness

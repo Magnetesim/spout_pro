@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import time
 
 # Idle OpenMP threads (ours and PyTorch's) sleep instead of spinning on every core.
@@ -139,6 +140,16 @@ def main():
     recent = {m: deque(maxlen=200) for m in MODE_NAMES}
     print(f"run {run_dir}  updates {num_updates}  batch {batch}  device {device}")
 
+    # On SIGTERM/SIGINT (e.g. a cluster job hitting its time limit), finish the
+    # current update, save latest.pt and exit cleanly.
+    stop_flag = [False]
+
+    def request_stop(signum, frame):
+        stop_flag[0] = True
+
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGUSR1):
+        signal.signal(sig, request_stop)
+
     t_start = time.time()
     steps_at_start = global_step
     for update in range(start_update, num_updates + 1):
@@ -267,10 +278,15 @@ def main():
                   flush=True)
 
         # ---- eval + checkpoints ----
+        stop_requested = stop_flag[0]
         def save(path, **extra):
+            # Write to a temp file and rename, so a kill mid-save never leaves
+            # a half-written checkpoint behind.
+            tmp = Path(str(path) + ".tmp")
             torch.save(dict(model=agent.state_dict(), optimizer=opt.state_dict(), update=update,
                             global_step=global_step, args=vars(args), env_cfg=env_cfg,
-                            best_eval=best_eval, **extra), path)
+                            best_eval=best_eval, **extra), tmp)
+            os.replace(tmp, path)
 
         if update % args.eval_every == 0 or update == num_updates:
             agent.eval()
@@ -294,8 +310,11 @@ def main():
                 save(run_dir / "best.pt")
                 save_replay(best, run_dir / "replays" / "best.json")
 
-        if update % args.save_every == 0 or update == num_updates:
+        if update % args.save_every == 0 or update == num_updates or stop_requested:
             save(run_dir / "latest.pt")
+        if stop_requested:
+            print(f"stop requested: saved latest.pt at update {update}, exiting", flush=True)
+            break
 
     writer.close()
     for x in halves:
